@@ -1,0 +1,139 @@
+# FireAtlas
+
+A local MODIS / VIIRS fire-analysis website for exploring real NASA FIRMS observations. Built from the supplied harmonization brief using React, Vite, TypeScript, Tailwind, Leaflet, FastAPI, pandas, DuckDB, and Parquet.
+
+## Run the complete system
+
+```sh
+docker compose up --build
+```
+
+Open **http://localhost:8000**. API documentation: **http://localhost:8000/docs**.
+The bundled dataset works without a key or network connection. Satellite imagery is optional and requires network access; the default basemap, fonts, and observations are bundled.
+
+### Run locally without Docker (Windows)
+
+```powershell
+git clone https://github.com/bcs24090021-spec/harmonization-MODIS-VIIRS.git
+cd harmonization-MODIS-VIIRS
+npm.cmd install
+npm.cmd run build
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+For frontend development: `npm.cmd run dev -- --port 5178`. It uses the bundled observations. The production FastAPI server provides `/data/runtime.json`, enabling the same frontend to load the server's ingested records at `/api/dataset`. Vite proxies `/api`; the full local build is the supported way to see added Parquet observations.
+
+## Navigate the local website
+
+The fire explorer opens as a split workspace: a permanent analysis panel on the left occupies 25% of the desktop width, and the map fills the remaining 75% beside it. Both extend from the main navigation to the bottom of the screen.
+
+- **Location, dates, and Filters:** use the controls in the top-left of the map. The drawer separates location and dates from optional advanced satellite, grid, and confidence settings.
+- **Activity calendar, Satellite trends, and Area summary:** switch views using the three tabs in the left panel. The calendar opens by default and uses a monthly day grid with month/year controls. Select a date to filter the map; use “Show all dates” or clear the date details to restore the date range. Trends are sized to the sidebar; summary figures are stacked vertically. The panel scrolls independently while the map stays visible.
+- **Compare satellites:** inspect the raw and adjusted observations, calibration, and fit quality.
+- **Fire insights:** explore unusual days and seasonal patterns. Selecting a day takes you back to the map.
+- **How it works:** read the method and data limitations in plain language.
+- **Data & imports / Import data:** add official observations. **Export:** download CSV, GeoJSON, or a calendar image.
+
+On phones and narrow tablets, the map appears above the analysis panel so both remain readable. The four main navigation links stay at the bottom on phones. Filters open as a drawer. Keyboard users can switch analysis tabs with Up/Down, Home, or End and close the filters with Escape.
+
+## What works
+
+- Responsive, light/dark dashboard; Borneo, Malaysia, Southeast Asia, Amazon, California, and Australia presets.
+- Real interactive map, rectangle/polygon drawing, Polygon/MultiPolygon GeoJSON uploads with holes, optional satellite imagery, and configurable grid rendering.
+- Daily burning calendars for count, FRP, and anomaly; mouse tooltips, keyboard navigation, and click-to-map filtering.
+- Raw MODIS versus merged VIIRS versus harmonized series with descriptive residual bands, daily/monthly aggregation, and sensor visibility controls.
+- Month-specific Theil–Sen count/FRP calibration with AOI fallback; actual R², bias, RMSE, transfer coefficients, and scatter plot.
+- Other-year seasonal baselines, unusual days, annual activity comparisons, and threshold-based season start/peak/end.
+- Browser CSV imports, coverage confirmation, CSV/GeoJSON/PNG downloads, shareable URL state, source provenance, empty/error/loading states, and a full Method page.
+- FastAPI endpoints, validated AOIs, bounded date ranges, in-memory query caching, archive/API ingestion, partitioned Parquet, Docker, and tests.
+
+## Real sample dataset
+
+**118,940 original NASA FIRMS observations**, Malaysia, 2019–2023, from 15 annual country archive files:
+
+- MODIS (`modis`)
+- VIIRS Suomi NPP (`viirs-snpp`)
+- VIIRS NOAA-20 (`viirs-jpss1`)
+
+These are complete official country CSVs, not synthetic data. See `data/provenance.json` for source URLs, record counts, and SHA-256 checksums. Rebuild the bundle with:
+
+```sh
+python data/download_sample.py
+```
+
+**Coverage limits:** Borneo and Southeast Asia show Malaysian territory only. The sample does not cover Indonesian or Bruneian Borneo, other regions, 2000–2018, or 2024 onward. Uncovered intervals remain null. Selecting a global preset does not manufacture a history for it. Browser CSV imports are session-local; imports default to observed dates only and do not establish zero-activity days elsewhere. Confirm complete export coverage only when you know the export is complete for the displayed AOI and dates.
+
+## Extend with FIRMS data
+
+Copy `.env.example` to `.env` and add your free `FIRMS_MAP_KEY` from https://firms.modaps.eosdis.nasa.gov/api/map_key/ . Never commit `.env` or put the key in browser code.
+
+```powershell
+.\.venv\Scripts\python.exe data/ingest.py --year 2023 --source MODIS_SP --bbox "108,-5,120,8"
+.\.venv\Scripts\python.exe data/ingest.py --year 2023 --source VIIRS_SNPP_SP --bbox "108,-5,120,8"
+.\.venv\Scripts\python.exe data/ingest.py --year 2023 --source VIIRS_NOAA20_SP --bbox "108,-5,120,8"
+```
+
+The script checks product availability, downloads at most five days per request, retries safely, caches raw CSVs by source/bbox/date, and writes `data/parquet/year=YYYY/SOURCE.parquet` plus coverage metadata. Rerunning replaces a partition rather than appending duplicates. Run one AOI per product/year; changing the AOI replaces that product/year partition. Restart FastAPI to reload records and clear its cache. The server reads partitions through DuckDB and exposes them to both API users and the browser.
+
+An existing official FIRMS export can be imported without a key:
+
+```powershell
+.\.venv\Scripts\python.exe data/ingest.py --year 2023 --source MODIS_SP --bbox "108,-5,120,8" --csv path/to/archive.csv
+```
+
+Imported files establish coverage on observed dates only. For a complete, gap-aware time series use API ingestion, whose metadata captures the full queried intervals. Standard-processing and NRT availability differ; the script respects NASA's product date limits. S-NPP ended on 2 November 2026; use supported NOAA products for newer observations.
+
+## API
+
+All analysis endpoints accept `aoi` (preset slug or `west,south,east,north`), `start`, `end`, `sensors=MODIS,VIIRS`, `confidence=30..100`, `grid=0.1|0.25|0.5`, and optional JSON `geometry` (Polygon/MultiPolygon). `/api/calibration` takes `region` instead of `aoi`.
+
+| Endpoint | Output |
+| --- | --- |
+| `/api/calendar?metric=count` | Daily harmonized count/FRP, sources, residual bands, baseline, percentile, z-score |
+| `/api/timeseries` | Daily raw/calibrated/harmonized series and annual summaries |
+| `/api/anomalies` | Days above the historical 95th percentile |
+| `/api/critical-periods` | Season start, rolling peak, end, ranked by intensity |
+| `/api/hotspots?date=2023-07-31` | Accepted observations as GeoJSON |
+| `/api/calibration?region=borneo` | Count/FRP global and monthly fit diagnostics |
+| `/api/grid` | Per sensor, cell, and day: detection count, unique pixels, FRP |
+| `/api/health` | Dataset size and coverage |
+
+First-query analysis includes cleaning and calibration. Repeated identical queries use a bounded 32-entry cache. This is a regional research implementation; global-scale preaggregation, job queues, and spatial indexing should precede production-scale ingestion.
+
+## Science and validation
+
+See `docs/method.md`, `docs/validation.json`, `docs/validation.svg`, and `docs/demo.md`. Run `python scripts/validate_data.py` to regenerate diagnostics, grid Parquet, and the plot. The TypeScript browser and Python API apply the same equations; a browser/API parity check compares the real series.
+
+**Known scientific limits:** active hotspots are not burned area; no detection does not prove no fire. A 0.01° matching lattice is an approximate 1 km comparison and can merge neighboring fires. Max-per-pixel FRP avoids repeat sampling but is not integrated energy. Monthly regression uses in-sample overlap observations; residual shading is not a validated confidence interval. Baselines depend on the selected years. A sensor-transition discontinuity is neither forced away nor claimed to be absent. The bundled years cannot validate the 2012 transition. Full 2000–present coverage requires ingesting those archives. Quantile mapping and independent ground-truth validation are not implemented.
+
+## Tests
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+npm.cmd run build
+npm.cmd run dev -- --port 5178
+# Keep the local API running on port 8000, then in another terminal:
+node scripts/verify.mjs
+```
+
+Browser verification uses Playwright. Set `CHROME_PATH` if your browser is installed elsewhere; otherwise install its matching Chromium with `npx.cmd playwright install chromium`. Test artifacts are written to ignored `artifacts/` (screenshots, real exports, accessibility report).
+
+## Structure
+
+```text
+data/       Official sample, source provenance, download and ingestion scripts
+pipeline/   Scientific cleaning, matching, gridding, calibration, analytics
+backend/    FastAPI, Parquet queries, API documentation, local frontend serving
+frontend/   React/TypeScript dashboard, local assets and equivalent browser engine
+docs/       Method, measured validation, presentation script
+tests/      Scientific-function and API tests
+scripts/    Browser verification and dataset validation
+```
+
+The private Sites deployment is the portable frontend with browser-side analysis and the bundled archive. Python, DuckDB, secrets, and persistent ingestion run in the supplied local/Docker service. The hosted frontend supports session-local CSV imports; it does not claim to host the Python API.
+
+## Full system report
+
+[Read the complete system report](output/reports/FireAtlas_Complete_System_Report.pdf) for feature explanations, usage instructions, methodology, measured results, and limitations.

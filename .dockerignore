@@ -1,0 +1,10 @@
+node_modules
+.venv
+.git
+.env
+dist
+artifacts
+data/raw
+data/parquet
+.sites-runtime
+*.zip
