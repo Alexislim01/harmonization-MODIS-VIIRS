@@ -1,6 +1,6 @@
 # FireAtlas
 
-A local MODIS / VIIRS fire-analysis website for exploring real NASA FIRMS observations. Built from the supplied harmonization brief using React, Vite, TypeScript, Tailwind, Leaflet, FastAPI, pandas, DuckDB, and Parquet.
+A local MODIS / VIIRS fire-analysis website for exploring real NASA FIRMS observations. Built from the supplied harmonization brief using React, Vite, TypeScript, Tailwind, MapLibre GL JS, FastAPI, pandas, DuckDB, and Parquet.
 
 ## Run the complete system
 
@@ -9,7 +9,7 @@ docker compose up --build
 ```
 
 Open **http://localhost:8000**. API documentation: **http://localhost:8000/docs**.
-The bundled dataset works without a key or network connection. Satellite imagery is optional and requires network access; the default basemap, fonts, and observations are bundled.
+The bundled dataset works without a key or network connection. The initial view is a true 3D globe with Esri satellite imagery, which requires network access. Switch to Map to use the bundled Natural Earth basemap offline; fonts and observations are also bundled. A WebGL-capable browser is required.
 
 ### Run locally without Docker (Windows)
 
@@ -29,7 +29,7 @@ For frontend development: `npm.cmd run dev -- --port 5178`. It uses the bundled 
 
 The fire explorer opens as a split workspace: a permanent analysis panel on the left occupies 25% of the desktop width, and the map fills the remaining 75% beside it. Both extend from the main navigation to the bottom of the screen.
 
-- **Location, dates, and Filters:** use the controls in the top-left of the map. The drawer separates location and dates from optional advanced satellite, grid, and confidence settings.
+- **Location, dates, and Filters:** use the controls in the top-left of the map. Area opens a cascading continent/country menu with regional presets and GeoJSON upload. Dates opens an Apply/Cancel popover with exact years/months and calendar selection. Filters opens a compact drawer; optional Advanced settings over the map applies the same sensor/platform, grid, native MODIS range, and VIIRS category filters immediately.
 - **Activity calendar, Satellite trends, and Area summary:** switch views using the three tabs in the left panel. The calendar opens by default and uses a monthly day grid with month/year controls. Select a date to filter the map; use “Show all dates” or clear the date details to restore the date range. Trends are sized to the sidebar; summary figures are stacked vertically. The panel scrolls independently while the map stays visible.
 - **Compare satellites:** inspect the raw and adjusted observations, calibration, and fit quality.
 - **Fire insights:** explore unusual days and seasonal patterns. Selecting a day takes you back to the map.
@@ -41,12 +41,12 @@ On phones and narrow tablets, the map appears above the analysis panel so both r
 ## What works
 
 - Responsive, light/dark dashboard; Borneo, Malaysia, Southeast Asia, Amazon, California, and Australia presets.
-- Real interactive map, rectangle/polygon drawing, Polygon/MultiPolygon GeoJSON uploads with holes, optional satellite imagery, and configurable grid rendering.
+- Real interactive map, rectangle/polygon drawing, Polygon/MultiPolygon GeoJSON uploads with holes, satellite imagery enabled initially, a real navigable 3D globe, and configurable grid rendering. Exit drawn area restores the previous named AOI without changing other settings.
 - Daily burning calendars for count, FRP, and anomaly; mouse tooltips, keyboard navigation, and click-to-map filtering.
 - Raw MODIS versus merged VIIRS versus harmonized series with descriptive residual bands, daily/monthly aggregation, and sensor visibility controls.
 - Month-specific Theil–Sen count/FRP calibration with AOI fallback; actual R², bias, RMSE, transfer coefficients, and scatter plot.
 - Other-year seasonal baselines, unusual days, annual activity comparisons, and threshold-based season start/peak/end.
-- Browser CSV imports, coverage confirmation, CSV/GeoJSON/PNG downloads, shareable URL state, source provenance, empty/error/loading states, and a full Method page.
+- Browser CSV imports gated by mandatory scope-specific completeness confirmation, CSV/GeoJSON/PNG downloads, shareable URL state, source provenance, empty/error/loading states, and a full Method page.
 - FastAPI endpoints, validated AOIs, bounded date ranges, in-memory query caching, archive/API ingestion, partitioned Parquet, Docker, and tests.
 
 ## Real sample dataset
@@ -137,3 +137,22 @@ The private Sites deployment is the portable frontend with browser-side analysis
 ## Full system report
 
 [Read the complete system report](output/reports/FireAtlas_Complete_System_Report.pdf) for feature explanations, usage instructions, methodology, measured results, and limitations.
+
+## Globe and selection checks
+
+```sh
+npm run build
+npm test
+npm run test:selection
+# In a separate terminal, start the production preview:
+npm run preview -- --port 5174
+# Against that preview (PowerShell: set $env:BASE_URL first):
+BASE_URL=http://127.0.0.1:5174 npm run test:ui
+BASE_URL=http://127.0.0.1:5174 npm run test:interactions
+BASE_URL=http://127.0.0.1:5174 npm run test:globe
+BASE_URL=http://127.0.0.1:5174 npm run test:popovers
+```
+
+Browser checks use Playwright Chromium, or `CHROME_PATH` when set. Linux system Chromium is detected automatically. Shared URLs include exact selected date intervals and the globe camera, but never browser-session datasets or credentials. Country/continent identifiers reconstruct their real boundaries from the bundled Natural Earth atlas; see [geography and coverage notes](docs/geography.md).
+
+Complete country coverage applies to the actual Malaysia country selection. Larger regions show observed data while leaving unobserved spatial coverage missing. Confirmed CSV coverage applies only to its explicit geometry and exact selected dates. Switching to a different geometry conservatively preserves observed days without inferring completeness from bounding boxes.

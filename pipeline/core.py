@@ -14,7 +14,7 @@ from typing import Any
 Record = dict[str, Any]
 
 
-def clean(records: list[Record], confidence: int = 30) -> list[Record]:
+def clean(records: list[Record], confidence: int | None = 30) -> list[Record]:
     result, seen = [], set()
     for raw in records:
         try:
@@ -29,9 +29,9 @@ def clean(records: list[Record], confidence: int = 30) -> list[Record]:
             value = str(r.get('confidence', '')).lower()
             if r['instrument'] == 'VIIRS':
                 value = {'low': 'l', 'nominal': 'n', 'high': 'h'}.get(value, value)
-                if value not in ('n', 'h') or (confidence > 80 and value != 'h'):
+                if confidence is not None and (value not in ('n', 'h') or (confidence > 80 and value != 'h')):
                     continue
-            elif float(value) < confidence:
+            elif confidence is not None and float(value) < confidence:
                 continue
             r['confidence'] = value
             r['acq_time'] = str(r.get('acq_time', '0')).zfill(4)
