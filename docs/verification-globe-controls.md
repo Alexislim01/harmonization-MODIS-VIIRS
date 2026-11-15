@@ -26,4 +26,4 @@ Screenshots are generated under ignored `artifacts/interactions/`. Browser scree
 
 ## Delivery status
 
-Changes are isolated on local branch `feat/globe-selection-controls`. Both Git push and the connected GitHub create-branch API returned HTTP 403, “Resource not accessible by integration.” Remote branch publication and PR creation require granting this integration write access to `Alexislim01/harmonization-MODIS-VIIRS`. Main was not changed.
+Changes are isolated on branch `feat/globe-selection-controls` in `Alexislim01/harmonization-MODIS-VIIRS`. Repository access was granted and the branch was pushed successfully. Main remains unchanged; this change is submitted for review, without merging or deploying.

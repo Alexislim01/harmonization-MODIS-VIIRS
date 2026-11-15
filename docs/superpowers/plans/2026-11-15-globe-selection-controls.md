@@ -51,7 +51,7 @@
 **Files:** update `scripts/verify.mjs` as needed; create verification notes.
 - [x] Run TypeScript/production build, Python tests, analytical assertions, existing UI checks and focused interaction tests.
 - [x] Review diff and document limitations grounded in observed results.
-- [ ] Push the verified feature branch and open a PR. GitHub integration returned 403 (resource not accessible); local commit/patch remains available pending repository access.
+- [x] Push the verified feature branch for PR review, leaving main unchanged. Repository access was granted and publication succeeded.
 
 ### Server-backed parity found during final review
 **Files:** `backend/main.py`, `pipeline/core.py`, `tests/test_api.py`.
