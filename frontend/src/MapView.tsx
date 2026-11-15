@@ -1,70 +1,35 @@
-import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { Crosshair, Layers, Minus, Plus, SquareDashedMousePointer, Pentagon, Check, X } from 'lucide-react';
-import type { Observation, Shape } from './engine';
-import { createMapMotion } from './mapMotion';
+import {useEffect,useRef,useState} from 'react';
+import maplibregl,{type GeoJSONSource} from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import {Crosshair,Layers,Minus,Plus,SquareDashedMousePointer,Pentagon,Check,X} from 'lucide-react';
+import type {Observation,Shape} from './engine';
+import type {Camera} from './selection';
+import {shapeBounds} from './geography';
 
-type Props={bbox:number[];hotspots:Observation[];grid:number;selectedDate:string|null;onShape:(shape:Shape,bbox:number[])=>void;name:string};
-export default function MapView({bbox,hotspots,grid,selectedDate,onShape,name}:Props){
-  const container=useRef<HTMLDivElement>(null),map=useRef<L.Map|null>(null),points=useRef<L.LayerGroup|null>(null),area=useRef<L.LayerGroup|null>(null),tiles=useRef<L.TileLayer|null>(null);
-  const [style,setStyle]=useState<'terrain'|'satellite'>('terrain'),[drawing,setDrawing]=useState<'rectangle'|'polygon'|null>(null),[vertices,setVertices]=useState<L.LatLng[]>([]),[showGrid,setShowGrid]=useState(false);
-  const mode=useRef(drawing),verts=useRef(vertices);mode.current=drawing;verts.current=vertices;
-  const currentBounds=useRef(bbox);currentBounds.current=bbox;
-  const motion=useRef<ReturnType<typeof createMapMotion>|null>(null);
-  const fitted=useRef(false);
-  useEffect(()=>{
-    if(!container.current)return;
-    const m=L.map(container.current,{zoomControl:false,attributionControl:true,preferCanvas:true,minZoom:2,maxZoom:12,zoomSnap:0,zoomDelta:.5,scrollWheelZoom:false,doubleClickZoom:false,inertia:true,inertiaDeceleration:1800,easeLinearity:.16}).setView([1.5,113.5],5);map.current=m;
-    motion.current=createMapMotion(m,()=>mode.current!==null);
-    points.current=L.layerGroup().addTo(m);area.current=L.layerGroup().addTo(m);
-    const abort=new AbortController();
-    let resizeTimer:ReturnType<typeof setTimeout>|undefined;
-    let initialSize=true;
-    const resize=new ResizeObserver(()=>{
-      m.invalidateSize({pan:false});
-      if(initialSize){initialSize=false;return;}
-      clearTimeout(resizeTimer);
-      resizeTimer=setTimeout(()=>{const b=currentBounds.current;motion.current?.fitBounds([[b[1],b[0]],[b[3],b[2]]]);},150);
-    });
-    resize.observe(container.current);
-    fetch('/data/world.geojson',{signal:abort.signal}).then(r=>r.json()).then(data=>{if(!map.current)return;L.geoJSON(data,{style:{color:'#567066',weight:.7,fillColor:'#22372f',fillOpacity:1},interactive:false}).addTo(m).bringToBack();}).catch(()=>{});
-    m.attributionControl.setPrefix(false);m.attributionControl.addAttribution('© <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · NASA FIRMS');
-    m.on('click',(e:L.LeafletMouseEvent)=>{if(mode.current)setVertices(v=>[...v,e.latlng]);});
-    return()=>{abort.abort();resize.disconnect();clearTimeout(resizeTimer);motion.current?.destroy();motion.current=null;fitted.current=false;m.remove();map.current=null;};
-  },[]);
-  useEffect(()=>{if(!motion.current)return;motion.current.fitBounds([[bbox[1],bbox[0]],[bbox[3],bbox[2]]],fitted.current);fitted.current=true;},[bbox.join(',')]);
-  useEffect(()=>{
-    const m=map.current;if(!m)return;if(tiles.current){m.removeLayer(tiles.current);tiles.current=null;}
-    if(style==='satellite')tiles.current=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri',maxZoom:12}).addTo(m);
-  },[style]);
-  useEffect(()=>{const group=points.current;if(!group)return;group.clearLayers();const rows=selectedDate?hotspots.filter(r=>r.acq_date===selectedDate):hotspots;
-    // Spatially group for rendering only. Exports retain all accepted observations.
-    const bins=new Map<string,{lat:number;lng:number;n:number;frp:number;sensors:Set<string>;date:string}>();
-    for(const r of rows){const cell=showGrid?grid:.035,key=`${Math.floor(r.latitude/cell)},${Math.floor(r.longitude/cell)}`;
-      if(!bins.has(key))bins.set(key,{lat:r.latitude,lng:r.longitude,n:0,frp:0,sensors:new Set(),date:r.acq_date});const b=bins.get(key)!;b.n++;b.frp+=r.frp;b.sensors.add(r.instrument);}
-    for(const b of bins.values()){
-      const options={radius:Math.min(7,2+Math.log(b.n+1)),color:'#ffd4a0',weight:.3,fillColor:b.n>15?'#ffcf87':b.n>4?'#f49b62':'#e76f51',fillOpacity:.88};
-      const marker=showGrid?L.rectangle([[Math.floor(b.lat/grid)*grid,Math.floor(b.lng/grid)*grid],[Math.floor(b.lat/grid)*grid+grid,Math.floor(b.lng/grid)*grid+grid]],{...options,color:'#ed9a61',weight:.7,fillOpacity:.25+Math.min(.5,b.n/80)}):L.circleMarker([b.lat,b.lng],options);
-      marker.bindTooltip(`${b.n.toLocaleString()} detections · ${b.frp.toFixed(1)} MW<br>${[...b.sensors].join(' + ')}${selectedDate?` · ${selectedDate}`:''}`);marker.addTo(group);
-    }
-  },[hotspots,selectedDate,grid,showGrid,style]);
-  useEffect(()=>{const m=map.current,group=area.current;if(!m||!group)return;group.clearLayers();if(drawing){if(vertices.length)L.polyline(vertices,{color:'#edb77c',dashArray:'5 5'}).addTo(group);return;}
-    L.rectangle([[bbox[1],bbox[0]],[bbox[3],bbox[2]]],{color:'#b3c3a3',weight:1,dashArray:'5 6',fillOpacity:0,interactive:false}).addTo(group);
-  },[drawing,vertices,bbox.join(',')]);
-  useEffect(()=>{if(drawing==='rectangle'&&vertices.length===2)finish();},[vertices]);
-  function finish(){if(vertices.length<(drawing==='rectangle'?2:3))return;let ring:number[][];
-    if(drawing==='rectangle'){const [a,b]=vertices;ring=[[Math.min(a.lng,b.lng),Math.min(a.lat,b.lat)],[Math.max(a.lng,b.lng),Math.min(a.lat,b.lat)],[Math.max(a.lng,b.lng),Math.max(a.lat,b.lat)],[Math.min(a.lng,b.lng),Math.max(a.lat,b.lat)]];}else ring=vertices.map(v=>[v.lng,v.lat]);
-    ring.push(ring[0]);const xs=ring.map(p=>p[0]),ys=ring.map(p=>p[1]);const bounds=[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)];
-    if(bounds[0]===bounds[2]||bounds[1]===bounds[3]){setDrawing(null);setVertices([]);return;}
-    onShape({type:'Polygon',coordinates:[ring]},bounds);setDrawing(null);setVertices([]);
-  }
-  function begin(mode:'rectangle'|'polygon'){setVertices([]);setDrawing(drawing===mode?null:mode);}
-  return <div className={`map-wrap ${drawing?'is-drawing':''}`}>
-    <div ref={container} className="map-canvas" aria-label={`Interactive map of ${name}; ${hotspots.length} fire observations`}/>
-    <div className="map-tools" role="group" aria-label="Map navigation"><button title="Zoom in" aria-label="Zoom in" onClick={()=>motion.current?.zoomBy(.5)}><Plus size={19}/></button><button title="Zoom out" aria-label="Zoom out" onClick={()=>motion.current?.zoomBy(-.5)}><Minus size={19}/></button><i/><button title="Return to selected area" aria-label="Fit selected area" onClick={()=>motion.current?.fitBounds([[bbox[1],bbox[0]],[bbox[3],bbox[2]]])}><Crosshair size={19}/></button></div>
-    <div className="map-draw-tools" role="group" aria-label="Draw a custom area"><span>Draw an area</span><button title="Select two opposite corners on the map" aria-label="Draw rectangle" aria-pressed={drawing==='rectangle'} onClick={()=>begin('rectangle')}><SquareDashedMousePointer size={17}/><span>Rectangle</span></button><button title="Select at least three points, then finish" aria-label="Draw polygon" aria-pressed={drawing==='polygon'} onClick={()=>begin('polygon')}><Pentagon size={17}/><span>Polygon</span></button></div>
-    {drawing&&<div className="draw-hint"><span>{drawing==='rectangle'?'Click two opposite corners':'Click to add polygon vertices'}</span>{drawing==='polygon'&&<button onClick={finish} disabled={vertices.length<3}><Check size={15}/> Finish</button>}<button aria-label="Cancel drawing" onClick={()=>{setDrawing(null);setVertices([]);}}><X size={15}/></button></div>}
-    <div className="map-bottom"><div className="map-key"><span className="fire-dot"/>Satellite fire detections <span className="map-key-divider"/> {showGrid?`${grid}° cells`:'Nearby points grouped'}</div><div className="map-style"><button className={showGrid?'active':''} aria-pressed={showGrid} onClick={()=>setShowGrid(!showGrid)}><Layers size={15}/> Grid</button><button className={style==='terrain'?'active':''} aria-pressed={style==='terrain'} onClick={()=>setStyle('terrain')}>Map</button><button className={style==='satellite'?'active':''} aria-pressed={style==='satellite'} onClick={()=>setStyle('satellite')}>Satellite</button></div></div>
-  </div>;
+type Props={bbox:number[];shape?:Shape;hotspots:Observation[];grid:number;selectedDate:string|null;onShape:(shape:Shape,bbox:number[])=>void;name:string;camera?:Camera;onCamera:(c:Camera)=>void;basemap:'terrain'|'satellite';onBasemap:(s:'terrain'|'satellite')=>void;showGrid:boolean;onGrid:(show:boolean)=>void;custom:boolean;onExit:()=>void;shared:boolean;navigationRevision:number};
+const empty={type:'FeatureCollection' as const,features:[]};
+function boundary(b:number[]):Shape{let east=b[2];if(east<b[0])east+=360;const ring=[[b[0],b[1]],[east,b[1]],[east,b[3]],[b[0],b[3]],[b[0],b[1]]];return {type:'Polygon',coordinates:[ring]};}
+export default function MapView(p:Props){
+ const container=useRef<HTMLDivElement>(null),map=useRef<maplibregl.Map|null>(null),latest=useRef(p);latest.current=p;
+ const [ready,setReady]=useState(false),[drawing,setDrawing]=useState<'rectangle'|'polygon'|null>(null),[vertices,setVertices]=useState<number[][]>([]),[mapError,setMapError]=useState('');
+ const mode=useRef(drawing);mode.current=drawing;
+ const reduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ function fit(b:number[],animate=true){const east=b[2]<b[0]?b[2]+360:b[2];if(east-b[0]>=350){map.current?.easeTo({center:[0,15],zoom:Math.log2(Math.min(container.current?.clientWidth||800,container.current?.clientHeight||600)*.72*Math.PI/512),bearing:0,pitch:0,duration:animate&&!reduced()?1300:0});return;}const el=container.current,pad=Math.max(25,Math.min(100,(el?.clientWidth||800)*.12));map.current?.fitBounds([[b[0],Math.max(-85,b[1])],[east,Math.min(85,b[3])]],{padding:{top:Math.min(190,(el?.clientHeight||700)*.3),bottom:90,left:pad,right:pad},maxZoom:10,duration:animate&&!reduced()?1400:0});}
+ useEffect(()=>{if(!container.current)return;let m:maplibregl.Map;try{m=new maplibregl.Map({container:container.current,style:{version:8,projection:{type:'globe'},sky:{'sky-color':'#071014','horizon-color':'#9eced5','fog-color':'#071014','sky-horizon-blend':.15,'horizon-fog-blend':.5,'fog-ground-blend':.1,'atmosphere-blend':.8},sources:{world:{type:'geojson',data:'/data/world.geojson'},imagery:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:12,attribution:'Tiles © Esri'}},layers:[{id:'background',type:'background',paint:{'background-color':'#192f32'}},{id:'land',type:'fill',source:'world',paint:{'fill-color':'#22372f'}},{id:'imagery',type:'raster',source:'imagery',layout:{visibility:p.basemap==='satellite'?'visible':'none'}},{id:'coast',type:'line',source:'world',paint:{'line-color':'#567066','line-width':.7},layout:{visibility:p.basemap==='terrain'?'visible':'none'}}]},center:p.camera?[p.camera.lng,p.camera.lat]:[105,12],zoom:p.camera?.zoom??Math.log2(Math.min(container.current.clientWidth,container.current.clientHeight)*.72*Math.PI/512),bearing:p.camera?.bearing??0,pitch:p.camera?.pitch??0,minZoom:-1.5,maxZoom:12,attributionControl:{compact:true,customAttribution:'© <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · NASA FIRMS'},renderWorldCopies:false});}catch{setMapError('A WebGL-capable browser is required for the interactive globe.');return;}
+ map.current=m;m.on('load',()=>{for(const id of ['detections','grid','area','drawing'])m.addSource(id,{type:'geojson',data:empty});m.addLayer({id:'cells',type:'fill',source:'grid',paint:{'fill-color':'#ed9a61','fill-opacity':.4,'fill-outline-color':'#ffd4a0'}});m.addLayer({id:'detections',type:'circle',source:'detections',paint:{'circle-radius':['min',7,['+',2,['ln',['+',1,['get','n']]]]],'circle-color':['step',['get','n'],'#e76f51',5,'#f49b62',16,'#ffcf87'],'circle-opacity':.88,'circle-stroke-color':'#ffd4a0','circle-stroke-width':.3}});m.addLayer({id:'area',type:'line',source:'area',paint:{'line-color':'#b3c3a3','line-width':1.3,'line-dasharray':[5,6]}});m.addLayer({id:'drawing',type:'line',source:'drawing',paint:{'line-color':'#edb77c','line-width':2,'line-dasharray':[3,3]}});if(p.shared&&!p.camera)fit(latest.current.bbox,false);const c=m.getCenter();latest.current.onCamera({lng:c.lng,lat:c.lat,zoom:m.getZoom(),bearing:m.getBearing(),pitch:m.getPitch()});setReady(true);});
+ m.on('move',()=>{const c=m.getCenter();latest.current.onCamera({lng:((c.lng+180)%360+360)%360-180,lat:c.lat,zoom:m.getZoom(),bearing:m.getBearing(),pitch:m.getPitch()});});
+ m.on('click',e=>{if(mode.current){if(m.transform.isPointOnMapSurface(e.point))setVertices(v=>[...v,[((e.lngLat.lng+180)%360+360)%360-180,e.lngLat.lat]]);return;}if(!m.getLayer('detections'))return;const f=m.queryRenderedFeatures(e.point,{layers:['detections','cells']})[0];if(f){const props=f.properties||{};new maplibregl.Popup().setLngLat(e.lngLat).setText(`${Number(props.n).toLocaleString()} detections · ${Number(props.frp).toFixed(1)} MW · ${props.sensors||''}`).addTo(m);}});
+ const resize=new ResizeObserver(()=>m.resize());resize.observe(container.current);return()=>{resize.disconnect();m.remove();map.current=null;};
+ },[]);
+ const previousRevision=useRef(p.navigationRevision);
+ useEffect(()=>{if(ready&&previousRevision.current!==p.navigationRevision){previousRevision.current=p.navigationRevision;fit(p.bbox);}},[p.navigationRevision,ready]);
+ useEffect(()=>{if(!ready)return;map.current?.setLayoutProperty('imagery','visibility',p.basemap==='satellite'?'visible':'none');map.current?.setLayoutProperty('coast','visibility',p.basemap==='terrain'?'visible':'none');},[p.basemap,ready]);
+ useEffect(()=>{const m=map.current;if(!ready||!m)return;const bins=new Map<string,{lat:number;lng:number;n:number;frp:number;sensors:Set<string>}>();for(const r of p.hotspots){if(p.selectedDate&&r.acq_date!==p.selectedDate)continue;const cell=p.showGrid?p.grid:.035,key=`${Math.floor(r.latitude/cell)},${Math.floor(r.longitude/cell)}`;if(!bins.has(key))bins.set(key,{lat:r.latitude,lng:r.longitude,n:0,frp:0,sensors:new Set()});const b=bins.get(key)!;b.n++;b.frp+=r.frp;b.sensors.add(r.instrument);}const features=[...bins.values()].map(b=>({type:'Feature' as const,properties:{n:b.n,frp:b.frp,sensors:[...b.sensors].join(' + ')},geometry:{type:'Point' as const,coordinates:[b.lng,b.lat]}}));(m.getSource('detections') as GeoJSONSource).setData({type:'FeatureCollection',features:p.showGrid?[]:features});const cells=p.showGrid?[...bins.values()].map(b=>({type:'Feature' as const,properties:{n:b.n,frp:b.frp,sensors:[...b.sensors].join(' + ')},geometry:boundary([Math.floor(b.lng/p.grid)*p.grid,Math.floor(b.lat/p.grid)*p.grid,Math.floor(b.lng/p.grid)*p.grid+p.grid,Math.floor(b.lat/p.grid)*p.grid+p.grid])})):[];(m.getSource('grid') as GeoJSONSource).setData({type:'FeatureCollection',features:cells});},[p.hotspots,p.selectedDate,p.grid,p.showGrid,ready]);
+ useEffect(()=>{if(!ready)return;(map.current?.getSource('area') as GeoJSONSource).setData({type:'Feature',properties:{},geometry:p.shape||boundary(p.bbox)});},[p.bbox,p.shape,ready]);
+ useEffect(()=>{if(!ready)return;(map.current?.getSource('drawing') as GeoJSONSource).setData(vertices.length>1?{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:vertices}}:empty);},[vertices,ready]);
+ useEffect(()=>{if(drawing==='rectangle'&&vertices.length===2)finish();},[vertices]);
+ useEffect(()=>{if(!drawing)return;const cancel=(e:KeyboardEvent)=>{if(e.key==='Escape'){setDrawing(null);setVertices([]);}};window.addEventListener('keydown',cancel);return()=>window.removeEventListener('keydown',cancel);},[drawing]);
+ function finish(){if(vertices.length<(drawing==='rectangle'?2:3))return;let ring:number[][];if(drawing==='rectangle'){const [a,b]=vertices;const dx=((b[0]-a[0]+540)%360)-180,east=a[0]+dx,lo=Math.min(a[0],east),hi=Math.max(a[0],east),wrap=(n:number)=>((n+180)%360+360)%360-180;ring=[[wrap(lo),Math.min(a[1],b[1])],[wrap(hi),Math.min(a[1],b[1])],[wrap(hi),Math.max(a[1],b[1])],[wrap(lo),Math.max(a[1],b[1])]];}else ring=[...vertices];ring.push([...ring[0]]);const shape:Shape={type:'Polygon',coordinates:[ring]},bounds=shapeBounds(shape);if(bounds[0]!==bounds[2]&&bounds[1]!==bounds[3])p.onShape(shape,bounds);setDrawing(null);setVertices([]);}
+ function begin(next:'rectangle'|'polygon'){setVertices([]);setDrawing(drawing===next?null:next);}
+ return <div className={`map-wrap ${drawing?'is-drawing':''}`}><div ref={container} className="map-canvas" aria-label={`Interactive 3D globe; selected area ${p.name}; ${p.hotspots.length} fire observations`}/>{mapError&&<p className="globe-error" role="alert">{mapError}</p>}<div className="map-tools" role="group" aria-label="Map navigation"><button aria-label="Zoom in" title="Zoom in" onClick={()=>map.current?.zoomIn({duration:reduced()?0:350})}><Plus size={19}/></button><button aria-label="Zoom out" title="Zoom out" onClick={()=>map.current?.zoomOut({duration:reduced()?0:350})}><Minus size={19}/></button><i/><button title="Return to selected area" aria-label="Fit selected area" onClick={()=>fit(p.bbox)}><Crosshair size={19}/></button></div><div className="map-draw-tools" role="group" aria-label="Draw a custom area"><span>Draw an area</span><button title="Select two opposite corners on the globe" aria-label="Draw rectangle" aria-pressed={drawing==='rectangle'} onClick={()=>begin('rectangle')}><SquareDashedMousePointer size={17}/><span>Rectangle</span></button><button title="Select at least three points, then finish" aria-label="Draw polygon" aria-pressed={drawing==='polygon'} onClick={()=>begin('polygon')}><Pentagon size={17}/><span>Polygon</span></button>{p.custom&&<button className="exit-area" onClick={p.onExit}>Exit drawn area</button>}</div>{drawing&&<div className="draw-hint"><span>{drawing==='rectangle'?'Click two opposite corners':'Click to add polygon vertices'}</span>{drawing==='polygon'&&<button onClick={finish} disabled={vertices.length<3}><Check size={15}/>Finish</button>}<button aria-label="Cancel drawing" onClick={()=>{setDrawing(null);setVertices([]);}}><X size={15}/></button></div>}<div className="map-bottom"><div className="map-key"><span className="fire-dot"/>Satellite fire detections<span className="map-key-divider"/>{p.showGrid?`${p.grid}° cells`:'Nearby points grouped'}</div><div className="map-style"><button className={p.showGrid?'active':''} aria-pressed={p.showGrid} onClick={()=>p.onGrid(!p.showGrid)}><Layers size={15}/> Grid</button><button className={p.basemap==='terrain'?'active':''} aria-pressed={p.basemap==='terrain'} onClick={()=>p.onBasemap('terrain')}>Map</button><button className={p.basemap==='satellite'?'active':''} aria-pressed={p.basemap==='satellite'} onClick={()=>p.onBasemap('satellite')}>Satellite</button></div></div></div>;
 }

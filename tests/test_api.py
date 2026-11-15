@@ -39,6 +39,15 @@ class APITests(unittest.TestCase):
             with self.subTest(params=params):
                 self.assertEqual(self.client.get('/api/calendar',params=params).status_code,422)
 
+    def test_browser_dataset_preserves_native_confidence_for_browser_filters(self):
+        rows = [record(confidence='0'), record(instrument='VIIRS', confidence='low', satellite='N'),
+                record(instrument='VIIRS', confidence='unknown', satellite='N20'), record(latitude='nan')]
+        with patch('backend.main.dataset', return_value=(rows, [])):
+            response = self.client.get('/api/dataset')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()['rows']), 3)
+        self.assertEqual({r[6] for r in response.json()['rows']}, {'0', 'l', 'unknown'})
+
     def test_unsupported_region_has_no_coverage(self):
         days=self.client.get('/api/calendar?aoi=california&start=2020-07-01&end=2020-07-03').json()['days']
         self.assertTrue(all(d['harmonized_count'] is None for d in days))

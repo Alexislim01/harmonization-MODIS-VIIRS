@@ -78,14 +78,18 @@ def health() -> dict:
 
 @app.get('/api/dataset')
 def browser_dataset() -> dict:
-    """Serve ingested data to the same browser pipeline used by the portable demo."""
+    """Validate/deduplicate, retaining native confidence for browser-side filters.
+
+    Unknown confidence is retained as unknown and explicitly excluded by the UI.
+    The analytical API and ingestion pipeline keep their existing cleaning defaults.
+    """
     from pipeline.core import clean
     rows, coverage = dataset()
     metadata = json.loads((ROOT/'data'/'provenance.json').read_text())
     metadata['coverage'] = coverage
     return {'metadata': metadata, 'rows': [[r['latitude'], r['longitude'], r['acq_date'], r['acq_time'],
             r.get('satellite', 'Unknown'), r['instrument'], r['confidence'], r['frp'], r.get('daynight', ''),
-            float(r.get('brightness') or r.get('bright_ti4') or 0)] for r in clean(rows)]}
+            float(r.get('brightness') or r.get('bright_ti4') or 0)] for r in clean(rows, confidence=None)]}
 
 
 @app.get('/data/runtime.json')
