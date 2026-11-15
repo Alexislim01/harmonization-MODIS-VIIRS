@@ -156,3 +156,24 @@ BASE_URL=http://127.0.0.1:5174 npm run test:popovers
 Browser checks use Playwright Chromium, or `CHROME_PATH` when set. Linux system Chromium is detected automatically. Shared URLs include exact selected date intervals and the globe camera, but never browser-session datasets or credentials. Country/continent identifiers reconstruct their real boundaries from the bundled Natural Earth atlas; see [geography and coverage notes](docs/geography.md).
 
 Complete country coverage applies to the actual Malaysia country selection. Larger regions show observed data while leaving unobserved spatial coverage missing. Confirmed CSV coverage applies only to its explicit geometry and exact selected dates. Switching to a different geometry conservatively preserves observed days without inferring completeness from bounding boxes.
+
+## Host a test website on GitHub Pages
+
+This repository includes `.github/workflows/pages.yml`, which builds and publishes the static browser app on pushes to `main` or a manual workflow run.
+
+1. Open your repository's **Settings → Pages**.
+2. Under **Build and deployment → Source**, choose **GitHub Actions**.
+3. Merge the GitHub Pages setup PR into `main`.
+4. Open **Actions → Deploy FireAtlas to GitHub Pages** and wait for build/deploy to pass. If the commit is already on main, choose **Run workflow** on `main`.
+5. Open the URL shown in the deployment or Pages settings. For this repository it is normally `https://alexislim01.github.io/harmonization-MODIS-VIIRS/`.
+
+The Pages site is public. Bundled NASA observations, globe/map navigation, analysis, CSV imports and exports run in the browser. Python/FastAPI endpoints, scheduled ingestion and server-side storage do not run on Pages. CSV imports remain browser-session data and are not uploaded to GitHub. Satellite tiles require an internet connection.
+
+The workflow derives its base path from the repository name. To test the same repository subpath locally:
+
+```sh
+FIREATLAS_BASE_PATH=/harmonization-MODIS-VIIRS/ npm run build
+FIREATLAS_BASE_PATH=/harmonization-MODIS-VIIRS/ npm run preview -- --port 5175
+```
+
+Then visit `http://127.0.0.1:5175/harmonization-MODIS-VIIRS/`. Normal local and FastAPI builds omit `FIREATLAS_BASE_PATH` and continue to use `/`.
